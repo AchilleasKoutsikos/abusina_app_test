@@ -16,13 +16,18 @@ class MyApp extends StatelessWidget {
   }
 }
 
+enum MapStyle {
+  osm,
+  satellite,
+  cartoLight,
+}
+
 class MapScreen extends StatefulWidget {
   @override
   _MapScreenState createState() => _MapScreenState();
 }
 
 class _MapScreenState extends State<MapScreen> {
-  bool _isSatellite = false; // Karte wechseln: Standard ↔ Satellit
   final MapController _mapController = MapController();
 
   List<Polygon> _polygons = [];
@@ -35,17 +40,18 @@ class _MapScreenState extends State<MapScreen> {
   bool _showWege = true;
   bool _showGelaende = true;
 
+  MapStyle _mapStyle = MapStyle.osm;
+
   @override
   void initState() {
     super.initState();
-    loadGeoJson(); // Hauptpolygon (z. B. Mauer)
-    loadWeitereLayer(); // Neue Layer laden
+    loadGeoJson();
+    loadWeitereLayer();
   }
 
   Future<void> loadGeoJson() async {
     final data = await rootBundle.loadString('assets/mauer.geojson');
     final geo = json.decode(data);
-
     List<Polygon> polygons = [];
 
     double? minLat, maxLat, minLng, maxLng;
@@ -55,16 +61,11 @@ class _MapScreenState extends State<MapScreen> {
         final coords = feature['geometry']['coordinates'][0];
         final points = coords.map<LatLng>((c) => LatLng(c[1], c[0])).toList();
 
-        // Bounding Box berechnen
         for (var p in points) {
-          minLat =
-              (minLat == null || p.latitude < minLat) ? p.latitude : minLat;
-          maxLat =
-              (maxLat == null || p.latitude > maxLat) ? p.latitude : maxLat;
-          minLng =
-              (minLng == null || p.longitude < minLng) ? p.longitude : minLng;
-          maxLng =
-              (maxLng == null || p.longitude > maxLng) ? p.longitude : maxLng;
+          minLat = (minLat == null || p.latitude < minLat) ? p.latitude : minLat;
+          maxLat = (maxLat == null || p.latitude > maxLat) ? p.latitude : maxLat;
+          minLng = (minLng == null || p.longitude < minLng) ? p.longitude : minLng;
+          maxLng = (maxLng == null || p.longitude > maxLng) ? p.longitude : maxLng;
         }
 
         polygons.add(Polygon(
@@ -72,7 +73,6 @@ class _MapScreenState extends State<MapScreen> {
           color: Colors.black,
           borderColor: Colors.black,
           borderStrokeWidth: 2,
-          // isFilled: true,
         ));
       }
     }
@@ -81,20 +81,14 @@ class _MapScreenState extends State<MapScreen> {
       _polygons = polygons;
     });
 
-    // Auf das Layer zoomen
     if (minLat != null && maxLat != null && minLng != null && maxLng != null) {
-      final center = LatLng(
-        (minLat + maxLat) / 2,
-        (minLng + maxLng) / 2,
-      );
-
+      final center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
       await Future.delayed(Duration(milliseconds: 300));
-      _mapController.move(center, 17.8); // Zoom-Level beliebig anpassbar
+      _mapController.move(center, 17.8);
     }
   }
 
   Future<void> loadWeitereLayer() async {
-    // Gehölz (Polygon)
     final gehoelzData = await rootBundle.loadString('assets/gehoelz.geojson');
     final gehoelzJson = json.decode(gehoelzData);
 
@@ -113,7 +107,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // Weg (Polygon)
     final wegData = await rootBundle.loadString('assets/weg.geojson');
     final wegJson = json.decode(wegData);
 
@@ -132,9 +125,7 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // Gelände (Punkte)
-    final gelaendeData =
-        await rootBundle.loadString('assets/Gelendepunkt.geojson');
+    final gelaendeData = await rootBundle.loadString('assets/Gelendepunkt.geojson');
     final gelaendeJson = json.decode(gelaendeData);
 
     for (var feature in gelaendeJson['features']) {
@@ -154,6 +145,22 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {});
   }
 
+  String getTileUrl() {
+    switch (_mapStyle) {
+      case MapStyle.satellite:
+        return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      case MapStyle.cartoLight:
+        return 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      case MapStyle.osm:
+      default:
+        return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    }
+  }
+
+  List<String> getSubdomains() {
+    return _mapStyle == MapStyle.cartoLight ? ['a', 'b', 'c', 'd'] : [];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -165,23 +172,15 @@ class _MapScreenState extends State<MapScreen> {
           zoom: 17.0,
         ),
         children: [
-          _isSatellite
-              ? TileLayer(
-                  urlTemplate:
-                      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                  userAgentPackageName: 'com.example.app',
-                )
-              : TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.app',
-                ),
+          TileLayer(
+            urlTemplate: getTileUrl(),
+            subdomains: getSubdomains(),
+            userAgentPackageName: 'de.meinprojekt.abusina',
+          ),
           if (_showPolygons) PolygonLayer(polygons: _polygons),
           if (_showGehoelz) PolygonLayer(polygons: _gehoelzPolygone),
           if (_showWege) PolygonLayer(polygons: _wegeLinien),
-          if (_showGelaende)
-            MarkerLayer(
-              markers: _gelaendeMarker,
-            ),
+          if (_showGelaende) MarkerLayer(markers: _gelaendeMarker),
         ],
       ),
       floatingActionButton: Column(
@@ -190,37 +189,28 @@ class _MapScreenState extends State<MapScreen> {
         children: [
           FloatingActionButton(
             heroTag: 'mauer',
-            onPressed: () {
-              setState(() => _showPolygons = !_showPolygons);
-            },
+            onPressed: () => setState(() => _showPolygons = !_showPolygons),
             tooltip: 'Mauer Layer',
-            child:
-                Icon(_showPolygons ? Icons.visibility : Icons.visibility_off),
+            child: Icon(_showPolygons ? Icons.visibility : Icons.visibility_off),
           ),
           SizedBox(height: 8),
           FloatingActionButton(
             heroTag: 'gehoelz',
-            onPressed: () {
-              setState(() => _showGehoelz = !_showGehoelz);
-            },
+            onPressed: () => setState(() => _showGehoelz = !_showGehoelz),
             tooltip: 'Gehölz Layer',
             child: Icon(Icons.forest),
           ),
           SizedBox(height: 8),
           FloatingActionButton(
             heroTag: 'weg',
-            onPressed: () {
-              setState(() => _showWege = !_showWege);
-            },
+            onPressed: () => setState(() => _showWege = !_showWege),
             tooltip: 'Wege Layer',
             child: Icon(Icons.alt_route),
           ),
           SizedBox(height: 8),
           FloatingActionButton(
             heroTag: 'gelaende',
-            onPressed: () {
-              setState(() => _showGelaende = !_showGelaende);
-            },
+            onPressed: () => setState(() => _showGelaende = !_showGelaende),
             tooltip: 'Gelände Layer',
             child: Icon(Icons.place),
           ),
@@ -229,11 +219,13 @@ class _MapScreenState extends State<MapScreen> {
             heroTag: 'toggleMap',
             onPressed: () {
               setState(() {
-                _isSatellite = !_isSatellite;
+                _mapStyle = MapStyle.values[
+                  (_mapStyle.index + 1) % MapStyle.values.length
+                ];
               });
             },
-            tooltip: _isSatellite ? 'Wechsle zu OSM' : 'Wechsle zu Satellit',
-            child: Icon(_isSatellite ? Icons.map : Icons.satellite_alt),
+            tooltip: 'Kartenstil wechseln',
+            child: Icon(Icons.layers),
           ),
         ],
       ),
